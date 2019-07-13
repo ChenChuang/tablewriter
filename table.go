@@ -71,7 +71,7 @@ type Table struct {
 	align          int
 	newLine        string
 	rowLine        bool
-	autoMergeCells bool
+	autoMergeCells map[int]bool
 	hdrLine        bool
 	borders        Border
 	colSize        int
@@ -85,36 +85,37 @@ type Table struct {
 // Take io.Writer Directly
 func NewWriter(writer io.Writer) *Table {
 	t := &Table{
-		out:           writer,
-		rows:          [][]string{},
-		lines:         [][][]string{},
-		cs:            make(map[int]int),
-		rs:            make(map[int]int),
-		headers:       [][]string{},
-		footers:       [][]string{},
-		caption:       false,
-		captionText:   "Table caption.",
-		autoFmt:       true,
-		autoWrap:      true,
-		reflowText:    true,
-		mW:            MAX_ROW_WIDTH,
-		pCenter:       CENTER,
-		pRow:          ROW,
-		pColumn:       COLUMN,
-		tColumn:       -1,
-		tRow:          -1,
-		hAlign:        ALIGN_DEFAULT,
-		fAlign:        ALIGN_DEFAULT,
-		align:         ALIGN_DEFAULT,
-		newLine:       NEWLINE,
-		rowLine:       false,
-		hdrLine:       true,
-		borders:       Border{Left: true, Right: true, Bottom: true, Top: true},
-		colSize:       -1,
-		headerParams:  []string{},
-		columnsParams: []string{},
-		footerParams:  []string{},
-		columnsAlign:  []int{}}
+		out:            writer,
+		rows:           [][]string{},
+		lines:          [][][]string{},
+		cs:             make(map[int]int),
+		rs:             make(map[int]int),
+		headers:        [][]string{},
+		footers:        [][]string{},
+		caption:        false,
+		captionText:    "Table caption.",
+		autoFmt:        true,
+		autoWrap:       true,
+		reflowText:     true,
+		mW:             MAX_ROW_WIDTH,
+		pCenter:        CENTER,
+		pRow:           ROW,
+		pColumn:        COLUMN,
+		tColumn:        -1,
+		tRow:           -1,
+		hAlign:         ALIGN_DEFAULT,
+		fAlign:         ALIGN_DEFAULT,
+		align:          ALIGN_DEFAULT,
+		newLine:        NEWLINE,
+		rowLine:        false,
+		hdrLine:        true,
+		borders:        Border{Left: true, Right: true, Bottom: true, Top: true},
+		colSize:        -1,
+		autoMergeCells: map[int]bool{},
+		headerParams:   []string{},
+		columnsParams:  []string{},
+		footerParams:   []string{},
+		columnsAlign:   []int{}}
 	return t
 }
 
@@ -124,7 +125,7 @@ func (t *Table) Render() {
 		t.printLine(true)
 	}
 	t.printHeading()
-	if t.autoMergeCells {
+	if len(t.autoMergeCells) > 0 {
 		t.printRowsMergeCells()
 	} else {
 		t.printRows()
@@ -260,8 +261,10 @@ func (t *Table) SetRowLine(line bool) {
 
 // Set Auto Merge Cells
 // This would enable / disable the merge of cells with identical values
-func (t *Table) SetAutoMergeCells(auto bool) {
-	t.autoMergeCells = auto
+func (t *Table) SetAutoMergeCells(column []int) {
+	for _, y := range column {
+		t.autoMergeCells[y] = true
+	}
 }
 
 // Set Table Border
@@ -749,7 +752,9 @@ func (t *Table) printRowMergeCells(writer io.Writer, columns [][]string, rowIdx 
 
 	var displayCellBorder []bool
 	t.fillAlignment(total)
+	var prevMerge bool
 	for x := 0; x < max; x++ {
+		prevMerge = false
 		for y := 0; y < total; y++ {
 
 			// Check if border is set
@@ -764,16 +769,19 @@ func (t *Table) printRowMergeCells(writer io.Writer, columns [][]string, rowIdx 
 				str = format(str, t.columnsParams[y])
 			}
 
-			if t.autoMergeCells {
+			if len(t.autoMergeCells) > 0 {
+				_, merge := t.autoMergeCells[y]
 				//Store the full line to merge mutli-lines cells
 				fullLine := strings.TrimRight(strings.Join(columns[y], " "), " ")
-				if len(previousLine) > y && fullLine == previousLine[y] && fullLine != "" {
+				if (merge || prevMerge) && len(previousLine) > y && fullLine == previousLine[y] && fullLine != "" {
 					// If this cell is identical to the one above but not empty, we don't display the border and keep the cell empty.
 					displayCellBorder = append(displayCellBorder, false)
 					str = ""
+					prevMerge = true
 				} else {
 					// First line or different content, keep the content and print the cell border
 					displayCellBorder = append(displayCellBorder, true)
+					prevMerge = false
 				}
 			}
 
@@ -804,7 +812,7 @@ func (t *Table) printRowMergeCells(writer io.Writer, columns [][]string, rowIdx 
 	//The new previous line is the current one
 	previousLine = make([]string, total)
 	for y := 0; y < total; y++ {
-		previousLine[y] = strings.TrimRight(strings.Join(columns[y], " ")," ") //Store the full line for multi-lines cells
+		previousLine[y] = strings.TrimRight(strings.Join(columns[y], " "), " ") //Store the full line for multi-lines cells
 	}
 	//Returns the newly added line and wether or not a border should be displayed above.
 	return previousLine, displayCellBorder
